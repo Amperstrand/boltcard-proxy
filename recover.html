@@ -7,6 +7,7 @@
     <!-- CryptoJS Library for AES decryption -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <style>
+        /* Styles omitted for brevity; use the same styling as before */
         body {
             font-family: Arial, sans-serif;
             margin: 20px;
@@ -100,37 +101,66 @@
 
 <div class="container">
     <h1>Boltcard UID Decryptor</h1>
-    <p>This tool reads the NDEF message from your Boltcard, extracts the <code>p</code> and <code>c</code> values, and decrypts the UID using your provided <code>K1</code> key.</p>
+    <p>This tool reads the LNURLw string from your Boltcard, extracts the <code>p</code> and <code>c</code> values, and decrypts the UID using your provided <code>K1</code> key.</p>
     
+    <!-- Reset Button -->
+    <button id="resetButton" style="background-color: #f44336; color: white; width: 100%; padding: 10px; margin-bottom: 20px;">Reset All Fields</button>
+    
+    <!-- Step 1: Provide LNURLw String -->
     <div class="step">
-        <h2>1. Read NDEF from Boltcard</h2>
-        <p>
-            <button id="readNfcButton">Read NDEF via NFC</button>
-        </p>
-        <p id="ndefStatus" class="warning"></p>
-        <p id="ndefContent"></p>
+        <h2>1. Provide LNURLw String</h2>
+        <p>Select one of the following options to provide the LNURLw string:</p>
+        <ol>
+            <li><strong>Step 1a:</strong> <button id="readNfcButton">Read LNURLw via NFC</button>
+                <p id="ndefStatus" class="warning"></p>
+            </li>
+            <li><strong>Step 1b:</strong>
+                <textarea id="manualNdefInput" rows="3" placeholder="Enter the LNURLw string here"></textarea>
+                <!-- If NFC read, populate this field -->
+            </li>
+            <li><strong>Step 1c:</strong> <button id="populateButton">Use Sample Values</button></li>
+        </ol>
     </div>
     
+    <!-- Step 2: Extract p and c -->
     <div class="step">
-        <h2>2. Or Enter NDEF Manually</h2>
-        <input type="text" id="manualNdefInput" placeholder="Enter the NDEF string here">
-        <button id="extractButton">Extract p and c</button>
-        <p id="manualError" class="error"></p>
+        <h2>2. Extract p and c Values</h2>
+        <button id="extractButton" disabled>Extract p and c</button>
+        <p id="extractError" class="error"></p>
+        <div id="extractedValues">
+            <!-- Extracted p and c will appear here -->
+        </div>
     </div>
     
+    <!-- Step 3: Enter K1 Key -->
     <div class="step">
         <h2>3. Enter K1 Key</h2>
-        <input type="text" id="k1Input" placeholder="Enter your K1 key (32 hex characters)">
-        <p id="k1Error" class="error"></p>
+        <p>Select one of the following options to provide the <code>K1</code> key:</p>
+        <ol>
+            <li><strong>Option 1:</strong> Enter K1 directly:
+                <input type="text" id="k1Input" placeholder="Enter your K1 key (32 hex characters)">
+                <p id="k1Error" class="error"></p>
+            </li>
+            <li><strong>Option 2:</strong> Paste recovery JSON:
+                <textarea id="jsonInput" rows="5" placeholder="Paste your recovery JSON here"></textarea>
+                <p id="jsonError" class="error"></p>
+            </li>
+            <li><strong>Option 3:</strong> Upload recovery JSON file:
+                <input type="file" id="jsonFileInput" accept=".json">
+                <p id="fileError" class="error"></p>
+            </li>
+        </ol>
     </div>
     
+    <!-- Step 4: Decrypt UID -->
     <div class="step">
         <h2>4. Decrypt UID</h2>
         <button id="decryptButton" disabled>Decrypt UID</button>
         <div id="output"></div>
     </div>
     
-    <div id="stepByStep" style="display: none;">
+    <!-- Step-by-Step Breakdown -->
+    <div id="stepByStep" class="step" style="display: none;">
         <h2>Step-by-Step Decryption Process</h2>
         <!-- Steps will be dynamically added here -->
     </div>
@@ -143,20 +173,56 @@
     let k1Hex = '';
     let isNfcSupported = 'NDEFReader' in window;
 
-    // Step 1: Read NDEF via NFC
+    // Elements
+    const resetButton = document.getElementById('resetButton');
     const readNfcButton = document.getElementById('readNfcButton');
     const ndefStatus = document.getElementById('ndefStatus');
-    const ndefContent = document.getElementById('ndefContent');
+    const manualNdefInput = document.getElementById('manualNdefInput');
+    const populateButton = document.getElementById('populateButton');
+    const extractButton = document.getElementById('extractButton');
+    const extractError = document.getElementById('extractError');
+    const extractedValuesDiv = document.getElementById('extractedValues');
+    const k1Input = document.getElementById('k1Input');
+    const jsonInput = document.getElementById('jsonInput');
+    const jsonFileInput = document.getElementById('jsonFileInput');
+    const k1Error = document.getElementById('k1Error');
+    const jsonError = document.getElementById('jsonError');
+    const fileError = document.getElementById('fileError');
     const decryptButton = document.getElementById('decryptButton');
 
+    // Reset Functionality
+    resetButton.addEventListener('click', () => {
+        ndefString = '';
+        pHex = '';
+        cHex = '';
+        k1Hex = '';
+        manualNdefInput.value = '';
+        extractedValuesDiv.innerHTML = '';
+        manualNdefInput.disabled = false;
+        k1Input.value = '';
+        jsonInput.value = '';
+        jsonFileInput.value = '';
+        extractButton.disabled = true;
+        decryptButton.disabled = true;
+        ndefStatus.textContent = '';
+        extractError.textContent = '';
+        k1Error.textContent = '';
+        jsonError.textContent = '';
+        fileError.textContent = '';
+        document.getElementById('output').innerHTML = '';
+        document.getElementById('stepByStep').style.display = 'none';
+    });
+
+    // Step 1a: Read LNURLw via NFC
     if (!isNfcSupported) {
         readNfcButton.style.display = 'none';
-        ndefStatus.textContent = 'Web NFC is not supported on this browser. Please use the manual NDEF input.';
+        ndefStatus.textContent = 'Web NFC is not supported on this browser.';
     }
 
     readNfcButton.addEventListener('click', async () => {
         ndefStatus.textContent = '';
-        ndefContent.textContent = '';
+        manualNdefInput.value = '';
+        extractedValuesDiv.innerHTML = '';
         try {
             const ndef = new NDEFReader();
             await ndef.scan();
@@ -169,16 +235,20 @@
             ndef.onreading = event => {
                 ndefStatus.textContent = '';
                 const message = event.message;
+                let found = false;
                 for (const record of message.records) {
                     if (record.recordType === "url") {
-                        ndefString = record.data;
-                        ndefContent.innerHTML = `<strong>NDEF URL:</strong> ${ndefString}`;
-                        extractPandC();
+                        const decoder = new TextDecoder();
+                        const url = decoder.decode(record.data);
+                        ndefString = url;
+                        manualNdefInput.value = ndefString;
+                        extractButton.disabled = false;
+                        found = true;
                         break;
                     }
                 }
-                if (!ndefString) {
-                    ndefContent.innerHTML += '<br><span class="error">No URL record found in the NDEF message.</span>';
+                if (!found) {
+                    ndefStatus.textContent = 'No URL record found in the NDEF message.';
                 }
             };
         } catch (error) {
@@ -186,24 +256,38 @@
         }
     });
 
-    // Step 2: Manual NDEF Input
-    const manualNdefInput = document.getElementById('manualNdefInput');
-    const extractButton = document.getElementById('extractButton');
-    const manualError = document.getElementById('manualError');
-
-    extractButton.addEventListener('click', () => {
+    // Step 1b: Manual LNURLw Input
+    manualNdefInput.addEventListener('input', () => {
         ndefString = manualNdefInput.value.trim();
-        manualError.textContent = '';
-        ndefContent.textContent = '';
-        if (!ndefString) {
-            manualError.textContent = 'Please enter the NDEF string.';
-            return;
+        if (ndefString) {
+            extractButton.disabled = false;
+        } else {
+            extractButton.disabled = true;
         }
-        extractPandC();
     });
 
-    // Function to extract p and c from NDEF string
-    function extractPandC() {
+    // Step 1c: Populate Example Values
+    populateButton.addEventListener('click', () => {
+        const exampleLNURLw = 'https://proxy.psbt.me/boltcards/api/v1/scan/ymd2kc6q5xde48b2mukgmu?p=66B719296AB3D925596D1F4EA6E49721&c=AE36FE4153B8C54A';
+        const exampleK1 = '55da174c9608993dc27bb3f30a4a7314';
+
+        manualNdefInput.value = exampleLNURLw;
+        ndefString = exampleLNURLw;
+        k1Input.value = exampleK1;
+        k1Hex = exampleK1.toLowerCase();
+
+        extractButton.disabled = false;
+    });
+
+    // Step 2: Extract p and c
+    extractButton.addEventListener('click', () => {
+        if (!ndefString) {
+            extractError.textContent = 'LNURLw string is missing. Please provide it first.';
+            return;
+        }
+        extractError.textContent = '';
+        extractedValuesDiv.innerHTML = '';
+
         // Extract p and c using regex
         const pMatch = ndefString.match(/[?&]p=([0-9A-Fa-f]+)/);
         const cMatch = ndefString.match(/[?&]c=([0-9A-Fa-f]+)/);
@@ -212,43 +296,91 @@
             pHex = pMatch[1];
             cHex = cMatch[1];
 
-            ndefContent.innerHTML += `<br><strong>Extracted p:</strong> ${pHex}<br><strong>Extracted c:</strong> ${cHex}`;
+            extractedValuesDiv.innerHTML = `<strong>Extracted p:</strong> ${pHex}<br><strong>Extracted c:</strong> ${cHex}`;
 
             // Enable decrypt button if K1 is already entered and valid
-            if (k1Hex && k1Hex.length === 32 && /^[0-9a-f]{32}$/.test(k1Hex)) {
+            if (validateK1(k1Hex) && pHex) {
                 decryptButton.disabled = false;
             }
         } else {
-            ndefContent.innerHTML += '<br><span class="error">Failed to extract <code>p</code> and <code>c</code> from the NDEF string.</span>';
+            extractedValuesDiv.innerHTML = '<span class="error">Failed to extract <code>p</code> and <code>c</code> from the LNURLw string.</span>';
         }
-    }
+    });
 
     // Step 3: Enter K1 Key
-    const k1Input = document.getElementById('k1Input');
-    const k1Error = document.getElementById('k1Error');
-
     k1Input.addEventListener('input', () => {
+        k1Hex = k1Input.value.trim().toLowerCase();
+        jsonInput.value = '';
+        jsonFileInput.value = '';
+        validateK1Input();
+    });
+
+    jsonInput.addEventListener('input', () => {
+        k1Input.value = '';
+        jsonFileInput.value = '';
+        parseJsonInput(jsonInput.value.trim());
+    });
+
+    jsonFileInput.addEventListener('change', () => {
+        k1Input.value = '';
+        jsonInput.value = '';
+        const file = jsonFileInput.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                parseJsonInput(content);
+            };
+            reader.readAsText(file);
+        }
+    });
+
+    function validateK1Input() {
         k1Error.textContent = '';
         k1Hex = k1Input.value.trim().toLowerCase();
-        if (k1Hex.length === 32 && /^[0-9a-f]{32}$/.test(k1Hex)) {
+        if (validateK1(k1Hex)) {
             if (pHex) {
                 decryptButton.disabled = false;
             }
         } else {
             decryptButton.disabled = true;
+            k1Error.textContent = 'Invalid K1 key format. Must be 32 hex characters.';
         }
-    });
+    }
+
+    function validateK1(key) {
+        return key.length === 32 && /^[0-9a-f]{32}$/.test(key);
+    }
+
+    function parseJsonInput(jsonString) {
+        jsonError.textContent = '';
+        try {
+            const jsonData = JSON.parse(jsonString);
+            if (jsonData.k1 && validateK1(jsonData.k1)) {
+                k1Hex = jsonData.k1.toLowerCase();
+                if (pHex) {
+                    decryptButton.disabled = false;
+                }
+            } else {
+                jsonError.textContent = 'Invalid JSON format or missing/invalid K1 key.';
+                decryptButton.disabled = true;
+            }
+        } catch (e) {
+            jsonError.textContent = 'Invalid JSON format.';
+            decryptButton.disabled = true;
+        }
+    }
 
     // Step 4: Decrypt UID
     decryptButton.addEventListener('click', () => {
         document.getElementById('output').innerHTML = '';
         document.getElementById('stepByStep').style.display = 'none';
-        if (!k1Hex || k1Hex.length !== 32 || !/^[0-9a-f]{32}$/.test(k1Hex)) {
+        if (!k1Hex || !validateK1(k1Hex)) {
             k1Error.textContent = 'Invalid K1 key format. Must be 32 hex characters.';
             return;
         }
         if (!pHex) {
-            document.getElementById('output').innerHTML = '<span class="error">Missing <code>p</code> value. Please ensure NDEF is correctly read or entered.</span>';
+            document.getElementById('output').innerHTML = '<span class="error">Missing <code>p</code> value. Please ensure LNURLw is correctly read or entered.</span>';
             return;
         }
         try {
@@ -327,19 +459,6 @@
         const outputDiv = document.getElementById('output');
         outputDiv.innerHTML = `<span class="success">${message}</span>`;
     }
-
-    // Reference Data for Step-by-Step (optional)
-    (function displayReferenceValues() {
-        const referenceValues = `
-            <!--
-            Reference p: 66B719296AB3D925596D1F4EA6E49721
-            Reference K1: 55da174c9608993dc27bb3f30a4a7314
-            Decrypted PICCData (hex): C7049971FA967380BE0000CABC1AB1EC
-            Extracted UID: 049971FA967380
-            -->
-        `;
-        document.body.insertAdjacentHTML('beforeend', referenceValues);
-    })();
 </script>
 
 </body>
