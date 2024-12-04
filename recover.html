@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Boltcard UID Decryptor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- CryptoJS Library for AES decryption -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f7f7f7;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .step {
+            margin-bottom: 20px;
+        }
+        .step h2 {
+            font-size: 1.2em;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .step pre {
+            background: #f0f0f0;
+            padding: 15px;
+            overflow-x: auto;
+            border-radius: 4px;
+        }
+        .step .note {
+            background: #e7f3fe;
+            border-left: 4px solid #2196F3;
+            padding: 10px;
+            margin-top: 10px;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+        }
+        .success {
+            color: green;
+            margin-top: 10px;
+        }
+        button, input[type="text"] {
+            padding: 10px;
+            font-size: 1em;
+            margin-top: 10px;
+        }
+        input[type="text"] {
+            width: calc(100% - 22px);
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        #readNfcButton, #decryptButton {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        #readNfcButton:hover, #decryptButton:hover {
+            background-color: #1976D2;
+        }
+        #decryptButton:disabled {
+            background-color: #90CAF9;
+            cursor: not-allowed;
+        }
+        #output {
+            background: #e0ffe0;
+            border-left: 4px solid #4CAF50;
+            padding: 10px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+        .warning {
+            color: #ff9800;
+            margin-top: 10px;
+        }
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Boltcard UID Decryptor</h1>
+    <p>This tool reads the NDEF message from your Boltcard, extracts the <code>p</code> and <code>c</code> values, and decrypts the UID using your provided <code>K1</code> key.</p>
+    
+    <div class="step">
+        <h2>1. Read NDEF from Boltcard</h2>
+        <p>
+            <button id="readNfcButton">Read NDEF via NFC</button>
+        </p>
+        <p id="ndefStatus" class="warning"></p>
+        <p id="ndefContent"></p>
+    </div>
+    
+    <div class="step">
+        <h2>2. Or Enter NDEF Manually</h2>
+        <input type="text" id="manualNdefInput" placeholder="Enter the NDEF string here">
+        <button id="extractButton">Extract p and c</button>
+        <p id="manualError" class="error"></p>
+    </div>
+    
+    <div class="step">
+        <h2>3. Enter K1 Key</h2>
+        <input type="text" id="k1Input" placeholder="Enter your K1 key (32 hex characters)">
+        <p id="k1Error" class="error"></p>
+    </div>
+    
+    <div class="step">
+        <h2>4. Decrypt UID</h2>
+        <button id="decryptButton" disabled>Decrypt UID</button>
+        <div id="output"></div>
+    </div>
+    
+    <div id="stepByStep" style="display: none;">
+        <h2>Step-by-Step Decryption Process</h2>
+        <!-- Steps will be dynamically added here -->
+    </div>
+</div>
+
+<script>
+    let ndefString = '';
+    let pHex = '';
+    let cHex = '';
+    let k1Hex = '';
+    let isNfcSupported = 'NDEFReader' in window;
+
+    // Step 1: Read NDEF via NFC
+    const readNfcButton = document.getElementById('readNfcButton');
+    const ndefStatus = document.getElementById('ndefStatus');
+    const ndefContent = document.getElementById('ndefContent');
+    const decryptButton = document.getElementById('decryptButton');
+
+    if (!isNfcSupported) {
+        readNfcButton.style.display = 'none';
+        ndefStatus.textContent = 'Web NFC is not supported on this browser. Please use the manual NDEF input.';
+    }
+
+    readNfcButton.addEventListener('click', async () => {
+        ndefStatus.textContent = '';
+        ndefContent.textContent = '';
+        try {
+            const ndef = new NDEFReader();
+            await ndef.scan();
+            ndefStatus.textContent = 'NFC reader is ready. Tap your Boltcard.';
+
+            ndef.onreadingerror = () => {
+                ndefStatus.textContent = 'Cannot read data from the NFC tag. Please try again.';
+            };
+
+            ndef.onreading = event => {
+                ndefStatus.textContent = '';
+                const message = event.message;
+                for (const record of message.records) {
+                    if (record.recordType === "url") {
+                        ndefString = record.data;
+                        ndefContent.innerHTML = `<strong>NDEF URL:</strong> ${ndefString}`;
+                        extractPandC();
+                        break;
+                    }
+                }
+                if (!ndefString) {
+                    ndefContent.innerHTML += '<br><span class="error">No URL record found in the NDEF message.</span>';
+                }
+            };
+        } catch (error) {
+            ndefStatus.textContent = `Error: ${error.message}`;
+        }
+    });
+
+    // Step 2: Manual NDEF Input
+    const manualNdefInput = document.getElementById('manualNdefInput');
+    const extractButton = document.getElementById('extractButton');
+    const manualError = document.getElementById('manualError');
+
+    extractButton.addEventListener('click', () => {
+        ndefString = manualNdefInput.value.trim();
+        manualError.textContent = '';
+        ndefContent.textContent = '';
+        if (!ndefString) {
+            manualError.textContent = 'Please enter the NDEF string.';
+            return;
+        }
+        extractPandC();
+    });
+
+    // Function to extract p and c from NDEF string
+    function extractPandC() {
+        // Extract p and c using regex
+        const pMatch = ndefString.match(/[?&]p=([0-9A-Fa-f]+)/);
+        const cMatch = ndefString.match(/[?&]c=([0-9A-Fa-f]+)/);
+
+        if (pMatch && cMatch) {
+            pHex = pMatch[1];
+            cHex = cMatch[1];
+
+            ndefContent.innerHTML += `<br><strong>Extracted p:</strong> ${pHex}<br><strong>Extracted c:</strong> ${cHex}`;
+
+            // Enable decrypt button if K1 is already entered and valid
+            if (k1Hex && k1Hex.length === 32 && /^[0-9a-f]{32}$/.test(k1Hex)) {
+                decryptButton.disabled = false;
+            }
+        } else {
+            ndefContent.innerHTML += '<br><span class="error">Failed to extract <code>p</code> and <code>c</code> from the NDEF string.</span>';
+        }
+    }
+
+    // Step 3: Enter K1 Key
+    const k1Input = document.getElementById('k1Input');
+    const k1Error = document.getElementById('k1Error');
+
+    k1Input.addEventListener('input', () => {
+        k1Error.textContent = '';
+        k1Hex = k1Input.value.trim().toLowerCase();
+        if (k1Hex.length === 32 && /^[0-9a-f]{32}$/.test(k1Hex)) {
+            if (pHex) {
+                decryptButton.disabled = false;
+            }
+        } else {
+            decryptButton.disabled = true;
+        }
+    });
+
+    // Step 4: Decrypt UID
+    decryptButton.addEventListener('click', () => {
+        document.getElementById('output').innerHTML = '';
+        document.getElementById('stepByStep').style.display = 'none';
+        if (!k1Hex || k1Hex.length !== 32 || !/^[0-9a-f]{32}$/.test(k1Hex)) {
+            k1Error.textContent = 'Invalid K1 key format. Must be 32 hex characters.';
+            return;
+        }
+        if (!pHex) {
+            document.getElementById('output').innerHTML = '<span class="error">Missing <code>p</code> value. Please ensure NDEF is correctly read or entered.</span>';
+            return;
+        }
+        try {
+            const steps = [];
+
+            // Step 1: Decrypt 'p' using K1 (AES ECB)
+            steps.push({
+                title: "Decrypt 'p' using K1 (AES ECB)",
+                description: `Using K1 key: <code>${k1Hex.toUpperCase()}</code>`
+            });
+
+            const key = CryptoJS.enc.Hex.parse(k1Hex);
+            const pEncrypted = CryptoJS.enc.Hex.parse(pHex);
+
+            const decrypted = CryptoJS.AES.decrypt({ciphertext: pEncrypted}, key, {
+                mode: CryptoJS.mode.ECB,
+                padding: CryptoJS.pad.NoPadding
+            });
+
+            const decryptedHex = decrypted.toString(CryptoJS.enc.Hex).toUpperCase();
+            steps.push({
+                title: "Decrypted PICCData (hex)",
+                description: decryptedHex
+            });
+
+            // Verify PICCData structure
+            if (decryptedHex.length < 24) { // 12 bytes * 2 hex chars
+                throw new Error("Decrypted PICCData is too short. Expected at least 12 bytes.");
+            }
+
+            if (decryptedHex.substring(0, 2) !== 'C7') {
+                throw new Error(`Invalid PICCData header: 0x${decryptedHex.substring(0, 2)}. Expected 0xC7.`);
+            }
+
+            // Step 2: Extract UID from PICCData
+            const uidHex = decryptedHex.substring(2, 16).toUpperCase(); // bytes 1 to 7 (14 hex chars)
+            steps.push({
+                title: "Extracted UID from PICCData",
+                description: `UID: <code>${uidHex}</code>`
+            });
+
+            // Display Steps
+            displaySteps(steps);
+
+            // Display UID
+            displaySuccess(`Successfully extracted UID: <strong>${uidHex}</strong>`);
+        } catch (error) {
+            displayError(error.message);
+        }
+    });
+
+    // Function to display step-by-step process
+    function displaySteps(steps) {
+        const stepByStepDiv = document.getElementById('stepByStep');
+        stepByStepDiv.style.display = 'block';
+        stepByStepDiv.innerHTML = '<h2>Step-by-Step Decryption Process</h2>';
+        steps.forEach((step, index) => {
+            const stepDiv = document.createElement('div');
+            stepDiv.classList.add('step');
+            stepDiv.innerHTML = `
+                <h2>Step ${index + 1}: ${step.title}</h2>
+                <pre>${step.description}</pre>
+            `;
+            stepByStepDiv.appendChild(stepDiv);
+        });
+    }
+
+    // Function to display errors
+    function displayError(message) {
+        const outputDiv = document.getElementById('output');
+        outputDiv.innerHTML = `<span class="error">${message}</span>`;
+    }
+
+    // Function to display success messages
+    function displaySuccess(message) {
+        const outputDiv = document.getElementById('output');
+        outputDiv.innerHTML = `<span class="success">${message}</span>`;
+    }
+
+    // Reference Data for Step-by-Step (optional)
+    (function displayReferenceValues() {
+        const referenceValues = `
+            <!--
+            Reference p: 66B719296AB3D925596D1F4EA6E49721
+            Reference K1: 55da174c9608993dc27bb3f30a4a7314
+            Decrypted PICCData (hex): C7049971FA967380BE0000CABC1AB1EC
+            Extracted UID: 049971FA967380
+            -->
+        `;
+        document.body.insertAdjacentHTML('beforeend', referenceValues);
+    })();
+</script>
+
+</body>
+</html>
